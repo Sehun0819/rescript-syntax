@@ -1,7 +1,8 @@
-let emptyLoc: Location.t =
-  {
-    loc_start = Lexing.dummy_pos;
-    loc_end = Lexing.dummy_pos;
-    loc_ghost = true;
-  }
-  
+(* Valid characters *)
+let lowers = ['a'; 'b'; 'c'; 'd'; 'e'; 'f'; 'g'; 'h'; 'i'; 'j'; 'k'; 'l'; 'm'; 'n'; 'o'; 'p'; 'q'; 'r'; 's'; 't'; 'u'; 'v'; 'w'; 'x'; 'y'; 'z']
+let uppers = ['A'; 'B'; 'C'; 'D'; 'E'; 'F'; 'G'; 'H'; 'I'; 'J'; 'K'; 'L'; 'M'; 'N'; 'O'; 'P'; 'Q'; 'R'; 'S'; 'T'; 'U'; 'V'; 'W'; 'X'; 'Y'; 'Z']
+let digits = ['0'; '1'; '2'; '3'; '4'; '5'; '6'; '7'; '8'; '9']
+let symbols = ['`'; '~'; '!'; '@'; '#'; '$'; '%'; '^'; '&'; '*'; '('; ')'; '-'; '_'; '+'; '=' ]
+let regular_chars = lowers @ uppers @ digits @ symbols
+let escape_seqs = [] (* TODO *)
+let char_literals = regular_chars @ escape_seqs

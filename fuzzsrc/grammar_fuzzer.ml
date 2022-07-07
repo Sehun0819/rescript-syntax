@@ -1,13 +1,36 @@
 open Parsetree
 open Fuzz_utils
 
-let genConstant () =
-  match Rand.choose 4 with
-  | 0 -> Pconst_integer ("3", None)
-  | 1 -> Pconst_char 'a'
-  | 2 -> Pconst_string ("abc", None)
-  | 3 -> Pconst_float ("1.0", None)
-  | _ -> assert false
+(** Generate Parsetree.constant **)
+
+let genInt () =
+  (* let sign = if Rand.randBool () then "+" else "=" in *)
+  let n = Rand.randInt () in
+  let suffix =
+    if Rand.randBool () then Some (Rand.amongv ['l'; 'L'; 'n']) else None
+  in
+  Pconst_integer (Int.to_string n, suffix)
+
+let genChar () = Pconst_char (Rand.amongv char_literals)
+
+let genStr () =
+  let len = Rand.randInt ~bound:100 () in
+  let s = ref "" in
+  for _i = 1 to len do
+    let c = Rand.amongv char_literals in
+    s := (Char.escaped c) ^ !s
+  done;
+  Pconst_string (!s, None) (* TODO: what is rhs? *)
+
+let genFloat () =
+  (* let sign = if Rand.randBool () then "+" else "=" in *)
+  let n = Rand.randFloat () in
+  Pconst_float (Float.to_string n, None)
+
+let genConstant () = Rand.amongf [genInt; genChar; genStr; genFloat]
+
+
+
 
 let genExpressionDesc () =
   Pexp_constant (genConstant ())
@@ -15,7 +38,7 @@ let genExpressionDesc () =
 let genExpression () =
   {
     pexp_desc = genExpressionDesc ();
-    pexp_loc = emptyLoc;
+    pexp_loc = Location.none;
     pexp_attributes = [];
   }
 
@@ -25,7 +48,7 @@ let genStructureItemDesc () =
 let genStructureItem () =
   {
     pstr_desc = genStructureItemDesc ();
-    pstr_loc = emptyLoc;
+    pstr_loc = Location.none;
   }
 
 let genStructure () =
