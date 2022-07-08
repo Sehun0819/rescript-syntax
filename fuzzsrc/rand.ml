@@ -28,3 +28,6 @@ let genList ?bound:(bound=5) f =
     l := f ():: !l;
   done;
   !l
+
+let genOption f =
+  if randBool () then Some (f ()) else None
