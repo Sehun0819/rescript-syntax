@@ -31,28 +31,28 @@ let genFloat () =
   Float.to_string n
 
 let genConstant () =
-  match Rand.randInt ~bound:4 () with
-  | 0 ->
-    let n, suffix = genInt () in
-    Pconst_integer (n, suffix)
-  | 1 -> Pconst_char (genChar ())
-  | 2 -> Pconst_string (genString (), None)
-  | 3 -> Pconst_float (genFloat (), None)
-  | _ -> assert false
+  among [
+    lazy (let n, suffix = genInt () in
+          Pconst_integer (n, suffix));
+    lazy (Pconst_char (genChar ()));
+    lazy (Pconst_string (genString (), None));
+    lazy (Pconst_float (genFloat (), None));
+  ] []
 
 let genArglabel () =
-  match Rand.randInt ~bound:3 () with
-  | 0 -> Nolabel
-  | 1 -> Labelled (genString ())
-  | 2 -> Optional (genString ())
-  | _ -> assert false
+  among [
+    lazy Nolabel;
+    lazy (Labelled (genString ()));
+    lazy (Optional (genString ()));
+  ] []
 
-let rec genLongident () =
-  match Rand.randInt ~bound:3 () with
-  | 0 -> Lident (genString ())
-  | 1 -> Ldot (genLongident (), genString())
-  | 2 -> Lapply (genLongident (), genLongident ())
-  | _ -> assert false
+let rec genLongident ?depth:(depth=3) () =
+  among depth [
+    lazy (Lident (genString ()));
+  ] [
+    lazy (Ldot (genLongident ~depth:(depth-1) (), genString ()));
+    lazy (Lapply (genLongident ~depth:(depth-1) (), genLongident ~depth:(depth-1) ()));
+  ]
 
 let genLoc genA () =
   {
@@ -75,33 +75,32 @@ let genOverrideFlag () = if Rand.randBool () then Override else Fresh
 let genClosedFlag () = if Rand.randBool () then Closed else Open
 
 let genVariance () =
-  match Rand.randInt ~bound:3 () with
-  | 0 -> Covariant
-  | 1 -> Contravariant
-  | 2 -> Invariant
-  | _ -> assert false
+  among [
+    lazy (Covariant);
+    lazy (Contravariant);
+    lazy (Invariant);
+  ] []
 
-let rec genAttribute () =
+let rec genAttribute ~depth () =
   let l = {
     txt = genString ();
     loc = Location.none;
   } in
-  let p = genPayload () in
+  let p = genPayload ~depth:(depth-1) () in
   (l, p)
 
-and genExtension () = genAttribute ()
+and genExtension ~depth () = genAttribute ~depth:(depth-1) ()
 
-and genAttributes () = Rand.genList genAttribute
+and genAttributes ~depth () = Rand.genList (genAttribute ~depth:(depth-1))
 
-and genPayload () =
-  match Rand.randInt ~bound:4 () with
-  | 0 -> PStr (genStructure ())
-  | 1 -> PSig (genSignature ())
-  | 2 -> PTyp (genCoretype ())
-  | 3 ->
-    let o = if Rand.randBool () then Some (genExpression ()) else None in
-    PPat (genPattern (), o)
-  | _ -> assert false
+and genPayload ~depth () =
+  among depth [] [
+    lazy (PStr (genStructure ~depth:(depth-1) ()));
+    lazy (PSig (genSignature ~depth:(depth-1) ()));
+    lazy (PTyp (genCoretype ~depth:(depth-1) ()));
+    lazy (let o = if Rand.randBool () then Some (genExpression ~depth:(depth-1) ()) else None in
+          PPat (genPattern ~depth:(depth-1) (), o));
+  ]
 
 and genCoretype () =
   {
@@ -111,38 +110,37 @@ and genCoretype () =
   }
 
 and genCoretypeDesc () =
-  match Rand.randInt ~bound:12 () with
-  | 0 -> Ptyp_any
-  | 1 -> Ptyp_var (genString ())
-  | 2 -> Ptyp_arrow (genArglabel (), genCoretype (), genCoretype ())
-  | 3 -> Ptyp_tuple (genList genCoretype)
-  | 4 -> Ptyp_constr (genLoc genLongident (), genList genCoretype)
-  | 5 -> Ptyp_object (genList genObjectfield, genClosedFlag ())
-  | 6 -> Ptyp_class (genLoc genLongident (), genList genCoretype)
-  | 7 -> Ptyp_alias (genCoretype (), genString ())
-  | 8 ->
-    let o = if Rand.randBool () then Some (genList genString) else None in
-    Ptyp_variant (genList genRowfield, genClosedFlag (), o)
-  | 9 -> Ptyp_poly (genList (genLoc genString), genCoretype ())
-  | 10 -> Ptyp_package (genPackagetype ())
-  | 11 -> Ptyp_extension (genExtension ())
-  | _ -> assert false
+  among [
+    lazy (Ptyp_any);
+    lazy (Ptyp_var (genString ()));
+    lazy (Ptyp_arrow (genArglabel (), genCoretype (), genCoretype ()));
+    lazy (Ptyp_tuple (genList genCoretype));
+    lazy (Ptyp_constr (genLoc genLongident (), genList genCoretype));
+    lazy (Ptyp_object (genList genObjectfield, genClosedFlag ()));
+    lazy (Ptyp_class (genLoc genLongident (), genList genCoretype));
+    lazy (Ptyp_alias (genCoretype (), genString ()));
+    lazy (let o = if Rand.randBool () then Some (genList genString) else None in
+          Ptyp_variant (genList genRowfield, genClosedFlag (), o));
+    lazy (Ptyp_poly (genList (genLoc genString), genCoretype ()));
+    lazy (Ptyp_package (genPackagetype ()));
+    lazy (Ptyp_extension (genExtension ()));
+  ]
 
 and genPackagetype () =
   let genLiCt () = (genLoc genLongident (), genCoretype ()) in
   genLoc genLongident (), genList genLiCt
 
 and genRowfield () =
-  if Rand.randBool () then
-    Rtag (genLoc genString (), genAttributes (), Rand.randBool (), genList genCoretype)
-  else
-    Rinherit (genCoretype ())
+  among [
+    lazy (Rtag (genLoc genString (), genAttributes (), Rand.randBool (), genList genCoretype));
+    lazy (Rinherit (genCoretype ()));
+  ]
 
 and genObjectfield () =
-  if Rand.randBool () then
-    Otag (genLoc genString (), genAttributes (), genCoretype ())
-  else
-    Oinherit (genCoretype ())
+  among [
+    lazy (Otag (genLoc genString (), genAttributes (), genCoretype ()));
+    lazy (Oinherit (genCoretype ()));
+  ] 
 
 and genPattern () =
   {
@@ -152,32 +150,29 @@ and genPattern () =
   }
 
 and genPatternDesc () =
-  match Rand.randInt ~bound:18 () with
-  | 0 -> Ppat_any
-  | 1 -> Ppat_var (genLoc genString ())
-  | 2 -> Ppat_alias (genPattern (), genLoc genString ())
-  | 3 -> Ppat_constant (genConstant ())
-  | 4 -> Ppat_interval (genConstant (), genConstant ())
-  | 5 -> Ppat_tuple (genList genPattern)
-  | 6 -> 
-    let o = if Rand.randBool () then Some (genPattern ()) else None in
-    Ppat_construct (genLoc genLongident (), o)
-  | 7 ->
-    let o = if Rand.randBool () then Some (genPattern ()) else None in
-    Ppat_variant (genString (), o)
-  | 8 ->
-    let genLiPt () = (genLoc genLongident (), genPattern ()) in
-    Ppat_record (genList genLiPt, genClosedFlag ())
-  | 9 -> Ppat_array (genList genPattern)
-  | 10 -> Ppat_or (genPattern (), genPattern ())
-  | 11 -> Ppat_constraint (genPattern (), genCoretype ())
-  | 12 -> Ppat_type (genLoc genLongident ())
-  | 13 -> Ppat_lazy (genPattern ())
-  | 14 -> Ppat_unpack (genLoc genString ())
-  | 15 -> Ppat_exception (genPattern ())
-  | 16 -> Ppat_extension (genExtension ())
-  | 17 -> Ppat_open (genLoc genLongident (), genPattern ())
-  | _ -> assert false
+  among [
+    lazy (Ppat_any);
+    lazy (Ppat_var (genLoc genString ()));
+    lazy (Ppat_alias (genPattern (), genLoc genString ()));
+    lazy (Ppat_constant (genConstant ()));
+    lazy (Ppat_interval (genConstant (), genConstant ()));
+    lazy (Ppat_tuple (genList genPattern));
+    lazy (let o = if Rand.randBool () then Some (genPattern ()) else None in
+          Ppat_construct (genLoc genLongident (), o));
+    lazy (let o = if Rand.randBool () then Some (genPattern ()) else None in
+          Ppat_variant (genString (), o));
+    lazy (let genLiPt () = (genLoc genLongident (), genPattern ()) in
+          Ppat_record (genList genLiPt, genClosedFlag ()));
+    lazy (Ppat_array (genList genPattern));
+    lazy (Ppat_or (genPattern (), genPattern ()));
+    lazy (Ppat_constraint (genPattern (), genCoretype ()));
+    lazy (Ppat_type (genLoc genLongident ()));
+    lazy (Ppat_lazy (genPattern ()));
+    lazy (Ppat_unpack (genLoc genString ()));
+    lazy (Ppat_exception (genPattern ()));
+    lazy (Ppat_extension (genExtension ()));
+    lazy (Ppat_open (genLoc genLongident (), genPattern ()));
+  ]
 
 and genExpression () =
   {
@@ -187,50 +182,47 @@ and genExpression () =
   }
 
 and genExpressionDesc () =
-  match Rand.randInt ~bound:36 () with
-  | 0 -> Pexp_ident (genLoc genLongident ())
-  | 1 -> Pexp_constant (genConstant ())
-  | 2 -> Pexp_let (genRecFlag (), genList genValuebinding, genExpression ())
-  | 3 -> Pexp_function (genList genCase)
-  | 4 -> Pexp_fun (genArglabel (), genOption genExpression, genPattern (), genExpression ())
-  | 5 ->
-    let genAlExp () = genArglabel (), genExpression () in
-    Pexp_apply (genExpression (), genList genAlExp)
-  | 6 -> Pexp_match (genExpression (), genList genCase)
-  | 7 -> Pexp_try (genExpression (), genList genCase)
-  | 8 -> Pexp_tuple (genList genExpression)
-  | 9 -> Pexp_construct (genLoc genLongident (), genOption genExpression)
-  | 10 -> Pexp_variant (genString (), genOption genExpression)
-  | 11 -> 
-    let genLiExp () = genLoc genLongident (), genExpression () in
-    Pexp_record (genList genLiExp, genOption genExpression)
-  | 12 -> Pexp_field (genExpression (), genLoc genLongident ())
-  | 13 -> Pexp_setfield (genExpression (), genLoc genLongident (), genExpression ())
-  | 14 -> Pexp_array (genList genExpression)
-  | 15 -> Pexp_ifthenelse (genExpression (), genExpression (), genOption genExpression)
-  | 16 -> Pexp_sequence (genExpression (), genExpression ())
-  | 17 -> Pexp_while (genExpression (), genExpression ())
-  | 18 -> Pexp_for (genPattern (), genExpression (), genExpression (), genDirectionFlag (), genExpression ())
-  | 19 -> Pexp_constraint (genExpression (), genCoretype ())
-  | 20 -> Pexp_coerce (genExpression (), genOption genCoretype, genCoretype ())
-  | 21 -> Pexp_send (genExpression (), genLoc genString ())
-  | 22 -> Pexp_new (genLoc genLongident ())
-  | 23 -> Pexp_setinstvar (genLoc genString (), genExpression ())
-  | 24 ->
-    let genLlExp () = genLoc genString (), genExpression () in
-    Pexp_override (genList genLlExp)
-  | 25 -> Pexp_letmodule (genLoc genString (), genModuleExpr (), genExpression ())
-  | 26 -> Pexp_letexception (genExtensionConstructor (), genExpression ())
-  | 27 -> Pexp_assert (genExpression ())
-  | 28 -> Pexp_lazy (genExpression ())
-  | 29 -> Pexp_poly (genExpression (), genOption genCoretype)
-  | 30 -> Pexp_object (genClassStructure ())
-  | 31 -> Pexp_newtype (genLoc genString (), genExpression ())
-  | 32 -> Pexp_pack (genModuleExpr ())
-  | 33 -> Pexp_open (genOverrideFlag (), genLoc genLongident (), genExpression ())
-  | 34 -> Pexp_extension (genExtension ())
-  | 35 -> Pexp_unreachable
-  | _ -> assert false
+  among [
+    lazy (Pexp_ident (genLoc genLongident ()));
+    lazy (Pexp_constant (genConstant ()));
+    lazy (Pexp_let (genRecFlag (), genList genValuebinding, genExpression ()));
+    lazy (Pexp_function (genList genCase));
+    lazy (Pexp_fun (genArglabel (), genOption genExpression, genPattern (), genExpression ()));
+    lazy (let genAlExp () = genArglabel (), genExpression () in
+          Pexp_apply (genExpression (), genList genAlExp));
+    lazy (Pexp_match (genExpression (), genList genCase));
+    lazy (Pexp_try (genExpression (), genList genCase));
+    lazy (Pexp_tuple (genList genExpression));
+    lazy (Pexp_construct (genLoc genLongident (), genOption genExpression));
+    lazy (Pexp_variant (genString (), genOption genExpression));
+    lazy (let genLiExp () = genLoc genLongident (), genExpression () in
+          Pexp_record (genList genLiExp, genOption genExpression));
+    lazy (Pexp_field (genExpression (), genLoc genLongident ()));
+    lazy (Pexp_setfield (genExpression (), genLoc genLongident (), genExpression ()));
+    lazy (Pexp_array (genList genExpression));
+    lazy (Pexp_ifthenelse (genExpression (), genExpression (), genOption genExpression));
+    lazy (Pexp_sequence (genExpression (), genExpression ()));
+    lazy (Pexp_while (genExpression (), genExpression ()));
+    lazy (Pexp_for (genPattern (), genExpression (), genExpression (), genDirectionFlag (), genExpression ()));
+    lazy (Pexp_constraint (genExpression (), genCoretype ()));
+    lazy (Pexp_coerce (genExpression (), genOption genCoretype, genCoretype ()));
+    lazy (Pexp_send (genExpression (), genLoc genString ()));
+    lazy (Pexp_new (genLoc genLongident ()));
+    lazy (Pexp_setinstvar (genLoc genString (), genExpression ()));
+    lazy (let genLlExp () = genLoc genString (), genExpression () in
+          Pexp_override (genList genLlExp));
+    lazy (Pexp_letmodule (genLoc genString (), genModuleExpr (), genExpression ()));
+    lazy (Pexp_letexception (genExtensionConstructor (), genExpression ()));
+    lazy (Pexp_assert (genExpression ()));
+    lazy (Pexp_lazy (genExpression ()));
+    lazy (Pexp_poly (genExpression (), genOption genCoretype));
+    lazy (Pexp_object (genClassStructure ()));
+    lazy (Pexp_newtype (genLoc genString (), genExpression ()));
+    lazy (Pexp_pack (genModuleExpr ()));
+    lazy (Pexp_open (genOverrideFlag (), genLoc genLongident (), genExpression ()));
+    lazy (Pexp_extension (genExtension ()));
+    lazy (Pexp_unreachable);
+  ]
 
 and genCase () =
   {
@@ -263,12 +255,12 @@ and genTypeDecl () =
   }
 
 and genTypeKind () =
-  match Rand.randInt ~bound:4 () with
-  | 0 -> Ptype_abstract
-  | 1 -> Ptype_variant (genList genConstructorDecl)
-  | 2 -> Ptype_record (genList genLabelDecl)
-  | 3 -> Ptype_open
-  | _ -> assert false
+  among [
+    lazy (Ptype_abstract);
+    lazy (Ptype_variant (genList genConstructorDecl));
+    lazy (Ptype_record (genList genLabelDecl));
+    lazy (Ptype_open);
+  ]
 
 and genLabelDecl () =
   {
@@ -289,10 +281,10 @@ and genConstructorDecl () =
   }
 
 and genConstructorArgs () =
-  if Rand.randBool () then
-    Pcstr_tuple (genList genCoretype)
-  else
-    Pcstr_record (genList genLabelDecl)
+  among [
+    lazy (Pcstr_tuple (genList genCoretype));
+    lazy (Pcstr_record (genList genLabelDecl));
+  ]
 
 and genTypeExtension () =
   let genCtVar () = genCoretype (), genVariance () in
@@ -313,10 +305,10 @@ and genExtensionConstructor () =
   }
 
 and genExtensionConstructorKind () =
-  if Rand.randBool () then
-    Pext_decl (genConstructorArgs (), genOption genCoretype)
-  else
-    Pext_rebind (genLoc genLongident ())
+  among [
+    lazy (Pext_decl (genConstructorArgs (), genOption genCoretype));
+    lazy (Pext_rebind (genLoc genLongident ()));
+  ]
 
 and genClassType () =
   {
@@ -326,13 +318,13 @@ and genClassType () =
   }
 
 and genClassTypeDesc () =
-  match Rand.randInt ~bound:5 () with
-  | 0 -> Pcty_constr (genLoc genLongident (), genList genCoretype)
-  | 1 -> Pcty_signature (genClassSignature ())
-  | 2 -> Pcty_arrow (genArglabel (), genCoretype (), genClassType ())
-  | 3 -> Pcty_extension (genExtension ())
-  | 4 -> Pcty_open (genOverrideFlag (), genLoc genLongident (), genClassType ())
-  | _ -> assert false
+  among [
+    lazy (Pcty_constr (genLoc genLongident (), genList genCoretype));
+    lazy (Pcty_signature (genClassSignature ()));
+    lazy (Pcty_arrow (genArglabel (), genCoretype (), genClassType ()));
+    lazy (Pcty_extension (genExtension ()));
+    lazy (Pcty_open (genOverrideFlag (), genLoc genLongident (), genClassType ()));
+  ]
 
 and genClassSignature () =
   {
@@ -348,14 +340,14 @@ and genClassTypeField () =
   }
 
 and genClassTypeFieldDesc () =
-  match Rand.randInt ~bound:6 () with
-  | 0 -> Pctf_inherit (genClassType ())
-  | 1 -> Pctf_val (genLoc genString (), genMutableFlag (), genVirtualFlag (), genCoretype ())
-  | 2 -> Pctf_method (genLoc genString (), genPrivateFlag (), genVirtualFlag (), genCoretype ())
-  | 3 -> Pctf_constraint (genCoretype (), genCoretype ())
-  | 4 -> Pctf_attribute (genAttribute ())
-  | 5 -> Pctf_extension (genExtension ())
-  | _ -> assert false
+  among [
+    lazy (Pctf_inherit (genClassType ()));
+    lazy (Pctf_val (genLoc genString (), genMutableFlag (), genVirtualFlag (), genCoretype ()));
+    lazy (Pctf_method (genLoc genString (), genPrivateFlag (), genVirtualFlag (), genCoretype ()));
+    lazy (Pctf_constraint (genCoretype (), genCoretype ()));
+    lazy (Pctf_attribute (genAttribute ()));
+    lazy (Pctf_extension (genExtension ()));
+  ]
 
 and genClassInfos genExpr =
   let genCtVar () = genCoretype (), genVariance () in
@@ -380,18 +372,17 @@ and genClassExpr () =
   }
 
 and genClassExprDesc () =
-  match Rand.randInt ~bound:8 () with
-  | 0 -> Pcl_constr (genLoc genLongident (), genList genCoretype)
-  | 1 -> Pcl_structure (genClassStructure ())
-  | 2 -> Pcl_fun (genArglabel (), genOption genExpression, genPattern (), genClassExpr ())
-  | 3 ->
-    let genAlExp () = genArglabel (), genExpression () in
-    Pcl_apply (genClassExpr (), genList genAlExp)
-  | 4 -> Pcl_let (genRecFlag (), genList genValuebinding, genClassExpr ())
-  | 5 -> Pcl_constraint (genClassExpr (), genClassType ())
-  | 6 -> Pcl_extension (genExtension ())
-  | 7 -> Pcl_open (genOverrideFlag (), genLoc genLongident (), genClassExpr ())
-  | _ -> assert false
+  among [
+    lazy (Pcl_constr (genLoc genLongident (), genList genCoretype));
+    lazy (Pcl_structure (genClassStructure ()));
+    lazy (Pcl_fun (genArglabel (), genOption genExpression, genPattern (), genClassExpr ()));
+    lazy (let genAlExp () = genArglabel (), genExpression () in
+          Pcl_apply (genClassExpr (), genList genAlExp));
+    lazy (Pcl_let (genRecFlag (), genList genValuebinding, genClassExpr ()));
+    lazy (Pcl_constraint (genClassExpr (), genClassType ()));
+    lazy (Pcl_extension (genExtension ()));
+    lazy (Pcl_open (genOverrideFlag (), genLoc genLongident (), genClassExpr ()));
+  ]
 
 and genClassStructure () =
   {
@@ -407,21 +398,21 @@ and genClassField () =
   }
 
 and genClassFieldDesc () =
-  match Rand.randInt ~bound:7 () with
-  | 0 -> Pcf_inherit (genOverrideFlag (), genClassExpr (), genOption (genLoc genString))
-  | 1 -> Pcf_val (genLoc genString (), genMutableFlag (), genClassFieldKind ())
-  | 2 -> Pcf_method (genLoc genString (), genPrivateFlag (), genClassFieldKind ())
-  | 3 -> Pcf_constraint (genCoretype (), genCoretype ())
-  | 4 -> Pcf_initializer (genExpression ())
-  | 5 -> Pcf_attribute (genAttribute ())
-  | 6 -> Pcf_extension (genExtension ())
-  | _ -> assert false
+  among [
+    lazy (Pcf_inherit (genOverrideFlag (), genClassExpr (), genOption (genLoc genString)));
+    lazy (Pcf_val (genLoc genString (), genMutableFlag (), genClassFieldKind ()));
+    lazy (Pcf_method (genLoc genString (), genPrivateFlag (), genClassFieldKind ()));
+    lazy (Pcf_constraint (genCoretype (), genCoretype ()));
+    lazy (Pcf_initializer (genExpression ()));
+    lazy (Pcf_attribute (genAttribute ()));
+    lazy (Pcf_extension (genExtension ()));
+  ]
 
 and genClassFieldKind () =
-  if Rand.randBool () then
-    Cfk_virtual (genCoretype ())
-  else
-    Cfk_concrete (genOverrideFlag (), genExpression ())
+  among [
+    lazy (Cfk_virtual (genCoretype ()));
+    lazy (Cfk_concrete (genOverrideFlag (), genExpression ()));
+  ] 
 
 and genClassDecl () =
   let genCtVar () = genCoretype (), genVariance () in
@@ -442,15 +433,15 @@ and genModuleType () =
   }
 
 and genModuleTypeDesc () =
-  match Rand.randInt ~bound:7 () with
-  | 0 -> Pmty_ident (genLoc genLongident ())
-  | 1 -> Pmty_signature (genSignature ())
-  | 2 -> Pmty_functor (genLoc genString (), genOption genModuleType, genModuleType ())
-  | 3 -> Pmty_with (genModuleType (), genList genWithConstraint)
-  | 4 -> Pmty_typeof (genModuleExpr ())
-  | 5 -> Pmty_extension (genExtension ())
-  | 6 -> Pmty_alias (genLoc genLongident ())
-  | _ -> assert false
+  among [
+    lazy (Pmty_ident (genLoc genLongident ()));
+    lazy (Pmty_signature (genSignature ()));
+    lazy (Pmty_functor (genLoc genString (), genOption genModuleType, genModuleType ()));
+    lazy (Pmty_with (genModuleType (), genList genWithConstraint));
+    lazy (Pmty_typeof (genModuleExpr ()));
+    lazy (Pmty_extension (genExtension ()));
+    lazy (Pmty_alias (genLoc genLongident ()));
+  ]
 
 and genSignature () = genList genSignatureItem
 
@@ -461,21 +452,21 @@ and genSignatureItem () =
   }
 
 and genSignatureItemDesc () =
-  match Rand.randInt ~bound:13 () with
-  | 0 -> Psig_value (genValueDesc ())
-  | 1 -> Psig_type (genRecFlag (), genList genTypeDecl)
-  | 2 -> Psig_typext (genTypeExtension ())
-  | 3 -> Psig_exception (genExtensionConstructor ())
-  | 4 -> Psig_module (genModuleDecl ())
-  | 5 -> Psig_recmodule (genList genModuleDecl)
-  | 6 -> Psig_modtype (genModuleTypeDecl ())
-  | 7 -> Psig_open (genOpenDesc ())
-  | 8 -> Psig_include (genIncludeDesc ())
-  | 9 -> Psig_class (genList genClassDesc)
-  | 10 -> Psig_class_type (genList genClassTypeDecl)
-  | 11 -> Psig_attribute (genAttribute ())
-  | 12 -> Psig_extension (genExtension (), genAttributes ())
-  | _ -> assert false
+  among [
+    lazy (Psig_value (genValueDesc ()));
+    lazy (Psig_type (genRecFlag (), genList genTypeDecl));
+    lazy (Psig_typext (genTypeExtension ()));
+    lazy (Psig_exception (genExtensionConstructor ()));
+    lazy (Psig_module (genModuleDecl ()));
+    lazy (Psig_recmodule (genList genModuleDecl));
+    lazy (Psig_modtype (genModuleTypeDecl ()));
+    lazy (Psig_open (genOpenDesc ()));
+    lazy (Psig_include (genIncludeDesc ()));
+    lazy (Psig_class (genList genClassDesc));
+    lazy (Psig_class_type (genList genClassTypeDecl));
+    lazy (Psig_attribute (genAttribute ()));
+    lazy (Psig_extension (genExtension (), genAttributes ()));
+  ]
  
 and genModuleDecl () =
   {
@@ -523,12 +514,12 @@ and genIncludeDecl () =
   }
 
 and genWithConstraint () =
-  match Rand.randInt ~bound:4 () with
-  | 0 -> Pwith_type (genLoc genLongident (), genTypeDecl ())
-  | 1 -> Pwith_module (genLoc genLongident (),genLoc genLongident ())
-  | 2 -> Pwith_typesubst (genLoc genLongident (), genTypeDecl ())
-  | 3 -> Pwith_modsubst (genLoc genLongident (),genLoc genLongident ())
-  | _ -> assert false
+  among [
+    lazy (Pwith_type (genLoc genLongident (), genTypeDecl ()));
+    lazy (Pwith_module (genLoc genLongident (),genLoc genLongident ()));
+    lazy (Pwith_typesubst (genLoc genLongident (), genTypeDecl ()));
+    lazy (Pwith_modsubst (genLoc genLongident (),genLoc genLongident ()));
+  ]
 
 and genModuleExpr () =
   {
@@ -538,15 +529,15 @@ and genModuleExpr () =
   }
 
 and genModuleExprDesc () =
-  match Rand.randInt ~bound:7 () with
-  | 0 -> Pmod_ident (genLoc genLongident ())
-  | 1 -> Pmod_structure (genStructure ())
-  | 2 -> Pmod_functor (genLoc genString (), genOption genModuleType, genModuleExpr ())
-  | 3 -> Pmod_apply (genModuleExpr (), genModuleExpr ())
-  | 4 -> Pmod_constraint (genModuleExpr (), genModuleType ())
-  | 5 -> Pmod_unpack (genExpression ())
-  | 6 -> Pmod_extension (genExtension ())
-  | _ -> assert false
+  among [
+    lazy (Pmod_ident (genLoc genLongident ()));
+    lazy (Pmod_structure (genStructure ()));
+    lazy (Pmod_functor (genLoc genString (), genOption genModuleType, genModuleExpr ()));
+    lazy (Pmod_apply (genModuleExpr (), genModuleExpr ()));
+    lazy (Pmod_constraint (genModuleExpr (), genModuleType ()));
+    lazy (Pmod_unpack (genExpression ()));
+    lazy (Pmod_extension (genExtension ()));
+  ]
 
 and genStructure () = genList genStructureItem
 
@@ -557,23 +548,23 @@ and genStructureItem () =
   }
 
 and genStructureItemDesc () =
-  match Rand.randInt ~bound:15 () with
-  | 0 -> Pstr_eval (genExpression (), genAttributes ())
-  | 1 -> Pstr_value (genRecFlag (), genList genValuebinding)
-  | 2 -> Pstr_primitive (genValueDesc ())
-  | 3 -> Pstr_type (genRecFlag (), genList genTypeDecl)
-  | 4 -> Pstr_typext (genTypeExtension ())
-  | 5 -> Pstr_exception (genExtensionConstructor ())
-  | 6 -> Pstr_module (genModuleBinding ())
-  | 7 -> Pstr_recmodule (genList genModuleBinding)
-  | 8 -> Pstr_modtype (genModuleTypeDecl ())
-  | 9 -> Pstr_open (genOpenDesc ())
-  | 10 -> Pstr_class (genList genClassDecl)
-  | 11 -> Pstr_class_type (genList genClassTypeDecl)
-  | 12 -> Pstr_include (genIncludeDecl ())
-  | 13 -> Pstr_attribute (genAttribute ())
-  | 14 -> Pstr_extension (genExtension (), genAttributes ())
-  | _ -> assert false
+  among [
+    lazy (Pstr_eval (genExpression (), genAttributes ()));
+    lazy (Pstr_value (genRecFlag (), genList genValuebinding));
+    lazy (Pstr_primitive (genValueDesc ()));
+    lazy (Pstr_type (genRecFlag (), genList genTypeDecl));
+    lazy (Pstr_typext (genTypeExtension ()));
+    lazy (Pstr_exception (genExtensionConstructor ()));
+    lazy (Pstr_module (genModuleBinding ()));
+    lazy (Pstr_recmodule (genList genModuleBinding));
+    lazy (Pstr_modtype (genModuleTypeDecl ()));
+    lazy (Pstr_open (genOpenDesc ()));
+    lazy (Pstr_class (genList genClassDecl));
+    lazy (Pstr_class_type (genList genClassTypeDecl));
+    lazy (Pstr_include (genIncludeDecl ()));
+    lazy (Pstr_attribute (genAttribute ()));
+    lazy (Pstr_extension (genExtension (), genAttributes ()));
+  ]
 
 and genValuebinding () =
   {
