@@ -5,7 +5,7 @@ module FuzzerClflags: sig
 
   val parse : unit -> unit
 end = struct
-  let target = ref "res"
+  let target = ref "ml"
   let width = ref 100
   let interface = ref false
 
@@ -17,7 +17,7 @@ end = struct
     [
       ( "-target",
         Arg.String (fun txt -> target := txt),
-        "Specify the print target language either binary, ml, ast, sexp, comments or res. Default: res" );
+        "Specify the print target language either binary, ml, ast, sexp, comments or res. Default: ml" );
       ( "-width",
         Arg.Int (fun w -> width := w),
         "Specify the line length for the printer (formatter)" );

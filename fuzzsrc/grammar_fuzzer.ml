@@ -27,7 +27,6 @@ let genList f =
   !l
 
 let genInt () =
-  (* let sign = if Rand.randBool () then "+" else "=" in *)
   let n = Rand.randInt () in
   let suffix =
     if Rand.randBool () then Some (Rand.amongv ['l'; 'L'; 'n']) else None
@@ -36,35 +35,23 @@ let genInt () =
 
 let genChar () = Rand.amongv char_literals
 
+let numString = ref 0
 let genString () =
-  (* let len = Rand.randInt ~bound:100 () in
-  let s = ref "" in
-  for _i = 1 to len do
-    let c = Rand.amongv char_literals in
-    s := (Char.escaped c) ^ !s
-  done;
-  !s (* TODO: what is rhs? *) *)
-  "random_string"
+  let n = !numString in
+  numString := 1 + n;
+  "random_string_" ^ (string_of_int n)
 
+let numIdentCap = ref 0
 let genIdentCapital () =
-  let len = Rand.randInt ~bound:6 () in
-  let s = ref "" in
-  let c = Rand.amongv uppers in
-  s := (Char.escaped c) ^ !s;
-  for _i = 1 to len do
-    let c = Rand.amongv lowers in
-    s := (Char.escaped c) ^ !s
-  done;
-  !s
+  let n = !numIdentCap in
+  numIdentCap := 1 + n;
+  "Ident_" ^ (string_of_int n)
 
+let numIdent = ref 0
 let genIdent () =
-  let len = Rand.randInt ~bound:7 () in
-  let s = ref "" in
-  for _i = 1 to len do
-    let c = Rand.amongv lowers in
-    s := (Char.escaped c) ^ !s
-  done;
-  !s
+  let n = !numIdent in
+  numIdent := 1 + n;
+  "ident_" ^ (string_of_int n)
 
 let genFloat () =
   (* let sign = if Rand.randBool () then "+" else "=" in *)
@@ -93,7 +80,7 @@ let rec genLongident () =
     lazy (Lident (genIdent ()));
   ] [
     lazy (Ldot (genLongident (), genIdent ()));
-    lazy (Lapply (genLongident (), genIdent ()));
+    lazy (Lapply (genLongident (), genLongident ()));
   ]
 
 let genLongidentCapital () =
@@ -213,17 +200,17 @@ and genPatternDesc () =
   addNonterminal ();
   among [
     lazy (Ppat_any);
-    lazy (Ppat_var (genLoc genString ()));
+    lazy (Ppat_var (genLoc genIdent ()));
     lazy (Ppat_constant (genConstant ()));
     lazy (Ppat_interval (genConstant (), genConstant ()));
-    lazy (Ppat_unpack (genLoc genString ()));
+    lazy (Ppat_unpack (genLoc genIdentCapital ()));
   ] [
     lazy (Ppat_alias (genPattern (), genLoc genString ()));
     lazy (Ppat_tuple (genList genPattern));
     lazy (let o = if Rand.randBool () then Some (genPattern ()) else None in
-          Ppat_construct (genLoc genLongident (), o));
+          Ppat_construct (genLoc genLongidentCapital (), o));
     lazy (let o = if Rand.randBool () then Some (genPattern ()) else None in
-          Ppat_variant (genString (), o));
+          Ppat_variant (genIdentCapital (), o));
     lazy (let genLiPt () = (genLoc genLongident (), genPattern ()) in
           Ppat_record (genList genLiPt, genClosedFlag ()));
     lazy (Ppat_array (genList genPattern));
@@ -233,7 +220,29 @@ and genPatternDesc () =
     lazy (Ppat_lazy (genPattern ()));
     lazy (Ppat_exception (genPattern ()));
     lazy (Ppat_extension (genExtension ()));
-    lazy (Ppat_open (genLoc genLongident (), genPattern ()));
+    lazy (Ppat_open (genLoc genLongidentCapital (), genPattern ()));
+  ]
+
+and genPatternLval ~isRec () =
+  {
+    ppat_desc = genPatternDescLval ~isRec ();
+    ppat_loc = Location.none;
+    ppat_attributes = genAttributes ();
+  }
+
+and genPatternDescLval ~isRec () =
+  addNonterminal ();
+  if isRec then Ppat_var (genLoc genString ()) else
+  among [
+    lazy (Ppat_any);
+    lazy (Ppat_var (genLoc genString ()));
+  ] [
+    lazy (Ppat_alias (genPatternLval ~isRec (), genLoc genIdent ()));
+    lazy (Ppat_tuple (genList (genPatternLval  ~isRec)));
+    lazy (Ppat_constraint (genPatternLval  ~isRec (), genCoretype ()));
+    (* lazy (Ppat_type (genLoc genLongident ())); <- ??? *)
+    (* lazy (Ppat_extension (genExtension ())); <- ??? *)
+    lazy (Ppat_open (genLoc genLongidentCapital (), genPattern ()));
   ]
 
 and genExpression () =
@@ -250,7 +259,13 @@ and genExpressionDesc () =
     lazy (Pexp_unreachable);
   ] [
     lazy (Pexp_ident (genLoc genLongident ()));
-    lazy (Pexp_let (genRecFlag (), genList genValuebinding, genExpression ()));
+    lazy (let recFlag = genRecFlag () in
+          let valuebindings =
+            match recFlag with
+            | Nonrecursive -> genList (genValuebinding ~isRec:false)
+            | Recursive -> genList (genValuebinding ~isRec:true)
+          in
+          Pexp_let (recFlag, valuebindings, genExpression ()));
     lazy (Pexp_function (genList genCase));
     lazy (Pexp_fun (genArglabel (), genOption genExpression, genPattern (), genExpression ()));
     lazy (let genAlExp () = genArglabel (), genExpression () in
@@ -450,7 +465,13 @@ and genClassExprDesc () =
     lazy (Pcl_fun (genArglabel (), genOption genExpression, genPattern (), genClassExpr ()));
     lazy (let genAlExp () = genArglabel (), genExpression () in
           Pcl_apply (genClassExpr (), genList genAlExp));
-    lazy (Pcl_let (genRecFlag (), genList genValuebinding, genClassExpr ()));
+    lazy (let recFlag = genRecFlag () in
+          let valuebindings =
+            match recFlag with
+            | Nonrecursive -> genList (genValuebinding ~isRec:false)
+            | Recursive -> genList (genValuebinding ~isRec:true)
+          in
+          Pcl_let (recFlag, valuebindings, genClassExpr ()));
     lazy (Pcl_constraint (genClassExpr (), genClassType ()));
     lazy (Pcl_extension (genExtension ()));
     lazy (Pcl_open (genOverrideFlag (), genLoc genLongident (), genClassExpr ()));
@@ -629,7 +650,13 @@ and genStructureItemDesc () =
   addNonterminal ();
   among [
     lazy (Pstr_eval (genExpression (), genAttributes ()));
-    lazy (Pstr_value (genRecFlag (), genList genValuebinding));
+    lazy (let recFlag = genRecFlag () in
+          let valuebindings =
+            match recFlag with
+            | Nonrecursive -> genList (genValuebinding ~isRec:false)
+            | Recursive -> genList (genValuebinding ~isRec:true)
+          in
+          Pstr_value (recFlag, valuebindings));
     lazy (Pstr_primitive (genValueDesc ()));
     lazy (Pstr_type (genRecFlag (), genList genTypeDecl));
     lazy (Pstr_typext (genTypeExtension ()));
@@ -645,9 +672,9 @@ and genStructureItemDesc () =
     lazy (Pstr_extension (genExtension (), genAttributes ()));
   ] []
 
-and genValuebinding () =
+and genValuebinding ~isRec () =
   {
-    pvb_pat = genPattern ();
+    pvb_pat = genPatternLval ~isRec ();
     pvb_expr = genExpression ();
     pvb_attributes = genAttributes();
     pvb_loc = Location.none;
