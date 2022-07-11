@@ -13,8 +13,9 @@ let randBool () =
   Random.self_init ();
   Random.bool ()
 
-let among ?depth:(depth=0) (l1: 'a Lazy.t list) (l2: 'a Lazy.t list) : 'a =
-  let l = if depth <= 0 then l1 else l1 @ l2 in
+(* let among (l1: 'a Lazy.t list) (l2: 'a Lazy.t list) : 'a = *)
+let among (l: 'a Lazy.t list) : 'a =
+  (* let l = if depth <= 0 then l1 else l1 @ l2 in *)
   let size = List.length l in
   let pick = List.nth l (randInt ~bound:size ()) in
   Lazy.force pick

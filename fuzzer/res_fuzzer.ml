@@ -46,12 +46,18 @@ module Fuzzer = struct
         exit 1
     in
 
+    let printEngineAST = Res_ast_debugger.printEngine in
+
     if isInterface then
       let parsetree = Grammar_fuzzer.genSignature () in
-      printEngine.printInterface ~width ~filename:"tempInterface" ~comments:[] parsetree
+      printEngine.printInterface ~width ~filename:"tempInterface" ~comments:[] parsetree;
+      print_endline "==============================";
+      printEngineAST.printInterface ~width ~filename:"tempInterface" ~comments:[] parsetree
     else
       let parsetree = Grammar_fuzzer.genStructure () in
-      printEngine.printImplementation ~width ~filename:"tempInterface" ~comments:[] parsetree
+      printEngine.printImplementation ~width ~filename:"tempInterface" ~comments:[] parsetree;
+      print_endline "==============================";
+      printEngineAST.printImplementation ~width ~filename:"tempInterface" ~comments:[] parsetree
 end
 
 let () =

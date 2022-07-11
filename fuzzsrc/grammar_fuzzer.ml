@@ -6,6 +6,26 @@ open Fuzz_utils
 
 (** Generate Parsetree.constant **)
 
+let numNonterminal = ref 0
+let addNonterminal () = numNonterminal := 1 + !numNonterminal; print_endline ("num nonterminals: " ^ (string_of_int !numNonterminal))
+let threshold = 6
+
+let among (l1: 'a Lazy.t list) (l2: 'a Lazy.t list) : 'a =
+  let l = if !numNonterminal >= threshold then l1 else l1 @ l2 in
+  let size = List.length l in
+  let pick = List.nth l (randInt ~bound:size ()) in
+  Lazy.force pick
+
+let genList f =
+  let lenMax = if !numNonterminal >= threshold then 1 else 5 in
+  let len = randInt ~bound:lenMax (); in
+  let len = if len = 0 then 1 else len in
+  let l = ref [] in
+  for _i = 1 to len do
+    l := f ():: !l;
+  done;
+  !l
+
 let genInt () =
   (* let sign = if Rand.randBool () then "+" else "=" in *)
   let n = Rand.randInt () in
@@ -17,13 +37,34 @@ let genInt () =
 let genChar () = Rand.amongv char_literals
 
 let genString () =
-  let len = Rand.randInt ~bound:100 () in
+  (* let len = Rand.randInt ~bound:100 () in
   let s = ref "" in
   for _i = 1 to len do
     let c = Rand.amongv char_literals in
     s := (Char.escaped c) ^ !s
   done;
-  !s (* TODO: what is rhs? *)
+  !s (* TODO: what is rhs? *) *)
+  "random_string"
+
+let genIdentCapital () =
+  let len = Rand.randInt ~bound:6 () in
+  let s = ref "" in
+  let c = Rand.amongv uppers in
+  s := (Char.escaped c) ^ !s;
+  for _i = 1 to len do
+    let c = Rand.amongv lowers in
+    s := (Char.escaped c) ^ !s
+  done;
+  !s
+
+let genIdent () =
+  let len = Rand.randInt ~bound:7 () in
+  let s = ref "" in
+  for _i = 1 to len do
+    let c = Rand.amongv lowers in
+    s := (Char.escaped c) ^ !s
+  done;
+  !s
 
 let genFloat () =
   (* let sign = if Rand.randBool () then "+" else "=" in *)
@@ -46,13 +87,23 @@ let genArglabel () =
     lazy (Optional (genString ()));
   ] []
 
-let rec genLongident ?depth:(depth=3) () =
-  among depth [
-    lazy (Lident (genString ()));
+let rec genLongident () =
+  addNonterminal ();
+  among [
+    lazy (Lident (genIdent ()));
   ] [
-    lazy (Ldot (genLongident ~depth:(depth-1) (), genString ()));
-    lazy (Lapply (genLongident ~depth:(depth-1) (), genLongident ~depth:(depth-1) ()));
+    lazy (Ldot (genLongident (), genIdent ()));
+    lazy (Lapply (genLongident (), genIdent ()));
   ]
+
+let genLongidentCapital () =
+  addNonterminal ();
+  among [
+    lazy (Lident (genIdentCapital ()));
+  ] [] (* [
+    lazy (Ldot (genLongident (), genString ()));
+    lazy (Lapply (genLongident (), genLongident ()));
+  ] *)
 
 let genLoc genA () =
   {
@@ -81,25 +132,28 @@ let genVariance () =
     lazy (Invariant);
   ] []
 
-let rec genAttribute ~depth () =
+let rec genAttribute () =
   let l = {
-    txt = genString ();
+    txt = genIdent ();
     loc = Location.none;
   } in
-  let p = genPayload ~depth:(depth-1) () in
+  let p = genPayload () in
   (l, p)
 
-and genExtension ~depth () = genAttribute ~depth:(depth-1) ()
+and genExtension () = genAttribute ()
 
-and genAttributes ~depth () = Rand.genList (genAttribute ~depth:(depth-1))
+(* and genAttributes () = Rand.genList genAttribute *)
+and genAttributes () = [];
 
-and genPayload ~depth () =
-  among depth [] [
-    lazy (PStr (genStructure ~depth:(depth-1) ()));
-    lazy (PSig (genSignature ~depth:(depth-1) ()));
-    lazy (PTyp (genCoretype ~depth:(depth-1) ()));
-    lazy (let o = if Rand.randBool () then Some (genExpression ~depth:(depth-1) ()) else None in
-          PPat (genPattern ~depth:(depth-1) (), o));
+and genPayload () =
+  addNonterminal ();
+  among [
+    lazy (PTyp (genCoretype ()));
+    lazy (let o = if Rand.randBool () then Some (genExpression ()) else None in
+          PPat (genPattern (), o));
+  ] [
+    lazy (PStr (genStructure ()));
+    lazy (PSig (genSignature ()));
   ]
 
 and genCoretype () =
@@ -110,18 +164,20 @@ and genCoretype () =
   }
 
 and genCoretypeDesc () =
+  addNonterminal ();
   among [
     lazy (Ptyp_any);
-    lazy (Ptyp_var (genString ()));
+    lazy (Ptyp_var (genIdent ()));
+  ] [
     lazy (Ptyp_arrow (genArglabel (), genCoretype (), genCoretype ()));
     lazy (Ptyp_tuple (genList genCoretype));
     lazy (Ptyp_constr (genLoc genLongident (), genList genCoretype));
     lazy (Ptyp_object (genList genObjectfield, genClosedFlag ()));
     lazy (Ptyp_class (genLoc genLongident (), genList genCoretype));
-    lazy (Ptyp_alias (genCoretype (), genString ()));
+    lazy (Ptyp_alias (genCoretype (), genIdent ()));
     lazy (let o = if Rand.randBool () then Some (genList genString) else None in
           Ptyp_variant (genList genRowfield, genClosedFlag (), o));
-    lazy (Ptyp_poly (genList (genLoc genString), genCoretype ()));
+    lazy (Ptyp_poly (genList (genLoc genIdent), genCoretype ()));
     lazy (Ptyp_package (genPackagetype ()));
     lazy (Ptyp_extension (genExtension ()));
   ]
@@ -131,15 +187,19 @@ and genPackagetype () =
   genLoc genLongident (), genList genLiCt
 
 and genRowfield () =
+  addNonterminal ();
   among [
-    lazy (Rtag (genLoc genString (), genAttributes (), Rand.randBool (), genList genCoretype));
     lazy (Rinherit (genCoretype ()));
+  ] [
+    lazy (Rtag (genLoc genString (), genAttributes (), Rand.randBool (), genList genCoretype));
   ]
 
 and genObjectfield () =
+  addNonterminal ();
   among [
-    lazy (Otag (genLoc genString (), genAttributes (), genCoretype ()));
     lazy (Oinherit (genCoretype ()));
+  ][
+    lazy (Otag (genLoc genString (), genAttributes (), genCoretype ()));
   ] 
 
 and genPattern () =
@@ -150,12 +210,15 @@ and genPattern () =
   }
 
 and genPatternDesc () =
+  addNonterminal ();
   among [
     lazy (Ppat_any);
     lazy (Ppat_var (genLoc genString ()));
-    lazy (Ppat_alias (genPattern (), genLoc genString ()));
     lazy (Ppat_constant (genConstant ()));
     lazy (Ppat_interval (genConstant (), genConstant ()));
+    lazy (Ppat_unpack (genLoc genString ()));
+  ] [
+    lazy (Ppat_alias (genPattern (), genLoc genString ()));
     lazy (Ppat_tuple (genList genPattern));
     lazy (let o = if Rand.randBool () then Some (genPattern ()) else None in
           Ppat_construct (genLoc genLongident (), o));
@@ -168,7 +231,6 @@ and genPatternDesc () =
     lazy (Ppat_constraint (genPattern (), genCoretype ()));
     lazy (Ppat_type (genLoc genLongident ()));
     lazy (Ppat_lazy (genPattern ()));
-    lazy (Ppat_unpack (genLoc genString ()));
     lazy (Ppat_exception (genPattern ()));
     lazy (Ppat_extension (genExtension ()));
     lazy (Ppat_open (genLoc genLongident (), genPattern ()));
@@ -182,9 +244,12 @@ and genExpression () =
   }
 
 and genExpressionDesc () =
+  addNonterminal ();
   among [
-    lazy (Pexp_ident (genLoc genLongident ()));
     lazy (Pexp_constant (genConstant ()));
+    lazy (Pexp_unreachable);
+  ] [
+    lazy (Pexp_ident (genLoc genLongident ()));
     lazy (Pexp_let (genRecFlag (), genList genValuebinding, genExpression ()));
     lazy (Pexp_function (genList genCase));
     lazy (Pexp_fun (genArglabel (), genOption genExpression, genPattern (), genExpression ()));
@@ -221,7 +286,6 @@ and genExpressionDesc () =
     lazy (Pexp_pack (genModuleExpr ()));
     lazy (Pexp_open (genOverrideFlag (), genLoc genLongident (), genExpression ()));
     lazy (Pexp_extension (genExtension ()));
-    lazy (Pexp_unreachable);
   ]
 
 and genCase () =
@@ -255,11 +319,13 @@ and genTypeDecl () =
   }
 
 and genTypeKind () =
+  addNonterminal ();
   among [
     lazy (Ptype_abstract);
+    lazy (Ptype_open);
+  ] [
     lazy (Ptype_variant (genList genConstructorDecl));
     lazy (Ptype_record (genList genLabelDecl));
-    lazy (Ptype_open);
   ]
 
 and genLabelDecl () =
@@ -281,10 +347,11 @@ and genConstructorDecl () =
   }
 
 and genConstructorArgs () =
+  addNonterminal ();
   among [
     lazy (Pcstr_tuple (genList genCoretype));
     lazy (Pcstr_record (genList genLabelDecl));
-  ]
+  ] []
 
 and genTypeExtension () =
   let genCtVar () = genCoretype (), genVariance () in
@@ -305,9 +372,11 @@ and genExtensionConstructor () =
   }
 
 and genExtensionConstructorKind () =
+  addNonterminal ();
   among [
-    lazy (Pext_decl (genConstructorArgs (), genOption genCoretype));
     lazy (Pext_rebind (genLoc genLongident ()));
+  ] [
+    lazy (Pext_decl (genConstructorArgs (), genOption genCoretype));
   ]
 
 and genClassType () =
@@ -318,13 +387,14 @@ and genClassType () =
   }
 
 and genClassTypeDesc () =
+  addNonterminal ();
   among [
     lazy (Pcty_constr (genLoc genLongident (), genList genCoretype));
     lazy (Pcty_signature (genClassSignature ()));
     lazy (Pcty_arrow (genArglabel (), genCoretype (), genClassType ()));
     lazy (Pcty_extension (genExtension ()));
     lazy (Pcty_open (genOverrideFlag (), genLoc genLongident (), genClassType ()));
-  ]
+  ] []
 
 and genClassSignature () =
   {
@@ -340,6 +410,7 @@ and genClassTypeField () =
   }
 
 and genClassTypeFieldDesc () =
+  addNonterminal ();
   among [
     lazy (Pctf_inherit (genClassType ()));
     lazy (Pctf_val (genLoc genString (), genMutableFlag (), genVirtualFlag (), genCoretype ()));
@@ -347,7 +418,7 @@ and genClassTypeFieldDesc () =
     lazy (Pctf_constraint (genCoretype (), genCoretype ()));
     lazy (Pctf_attribute (genAttribute ()));
     lazy (Pctf_extension (genExtension ()));
-  ]
+  ] []
 
 and genClassInfos genExpr =
   let genCtVar () = genCoretype (), genVariance () in
@@ -372,6 +443,7 @@ and genClassExpr () =
   }
 
 and genClassExprDesc () =
+  addNonterminal ();
   among [
     lazy (Pcl_constr (genLoc genLongident (), genList genCoretype));
     lazy (Pcl_structure (genClassStructure ()));
@@ -382,7 +454,7 @@ and genClassExprDesc () =
     lazy (Pcl_constraint (genClassExpr (), genClassType ()));
     lazy (Pcl_extension (genExtension ()));
     lazy (Pcl_open (genOverrideFlag (), genLoc genLongident (), genClassExpr ()));
-  ]
+  ] []
 
 and genClassStructure () =
   {
@@ -398,6 +470,7 @@ and genClassField () =
   }
 
 and genClassFieldDesc () =
+  addNonterminal ();
   among [
     lazy (Pcf_inherit (genOverrideFlag (), genClassExpr (), genOption (genLoc genString)));
     lazy (Pcf_val (genLoc genString (), genMutableFlag (), genClassFieldKind ()));
@@ -406,13 +479,14 @@ and genClassFieldDesc () =
     lazy (Pcf_initializer (genExpression ()));
     lazy (Pcf_attribute (genAttribute ()));
     lazy (Pcf_extension (genExtension ()));
-  ]
+  ] []
 
 and genClassFieldKind () =
+  addNonterminal ();
   among [
     lazy (Cfk_virtual (genCoretype ()));
     lazy (Cfk_concrete (genOverrideFlag (), genExpression ()));
-  ] 
+  ] []
 
 and genClassDecl () =
   let genCtVar () = genCoretype (), genVariance () in
@@ -433,6 +507,7 @@ and genModuleType () =
   }
 
 and genModuleTypeDesc () =
+  addNonterminal ();
   among [
     lazy (Pmty_ident (genLoc genLongident ()));
     lazy (Pmty_signature (genSignature ()));
@@ -441,7 +516,7 @@ and genModuleTypeDesc () =
     lazy (Pmty_typeof (genModuleExpr ()));
     lazy (Pmty_extension (genExtension ()));
     lazy (Pmty_alias (genLoc genLongident ()));
-  ]
+  ] []
 
 and genSignature () = genList genSignatureItem
 
@@ -452,6 +527,7 @@ and genSignatureItem () =
   }
 
 and genSignatureItemDesc () =
+  addNonterminal ();
   among [
     lazy (Psig_value (genValueDesc ()));
     lazy (Psig_type (genRecFlag (), genList genTypeDecl));
@@ -466,7 +542,7 @@ and genSignatureItemDesc () =
     lazy (Psig_class_type (genList genClassTypeDecl));
     lazy (Psig_attribute (genAttribute ()));
     lazy (Psig_extension (genExtension (), genAttributes ()));
-  ]
+  ] []
  
 and genModuleDecl () =
   {
@@ -478,7 +554,7 @@ and genModuleDecl () =
 
 and genModuleTypeDecl () =
   {
-    pmtd_name = genLoc genString ();
+    pmtd_name = genLoc genIdentCapital ();
     pmtd_type = genOption genModuleType;
     pmtd_attributes = genAttributes ();
     pmtd_loc = Location.none;
@@ -486,7 +562,7 @@ and genModuleTypeDecl () =
 
 and genOpenDesc () =
   {
-    popen_lid = genLoc genLongident ();
+    popen_lid = genLoc genLongidentCapital ();
     popen_override = genOverrideFlag ();
     popen_loc = Location.none;
     popen_attributes = genAttributes ();
@@ -514,12 +590,13 @@ and genIncludeDecl () =
   }
 
 and genWithConstraint () =
+  addNonterminal ();
   among [
     lazy (Pwith_type (genLoc genLongident (), genTypeDecl ()));
     lazy (Pwith_module (genLoc genLongident (),genLoc genLongident ()));
     lazy (Pwith_typesubst (genLoc genLongident (), genTypeDecl ()));
     lazy (Pwith_modsubst (genLoc genLongident (),genLoc genLongident ()));
-  ]
+  ] []
 
 and genModuleExpr () =
   {
@@ -529,6 +606,7 @@ and genModuleExpr () =
   }
 
 and genModuleExprDesc () =
+  addNonterminal ();
   among [
     lazy (Pmod_ident (genLoc genLongident ()));
     lazy (Pmod_structure (genStructure ()));
@@ -537,7 +615,7 @@ and genModuleExprDesc () =
     lazy (Pmod_constraint (genModuleExpr (), genModuleType ()));
     lazy (Pmod_unpack (genExpression ()));
     lazy (Pmod_extension (genExtension ()));
-  ]
+  ] []
 
 and genStructure () = genList genStructureItem
 
@@ -548,6 +626,7 @@ and genStructureItem () =
   }
 
 and genStructureItemDesc () =
+  addNonterminal ();
   among [
     lazy (Pstr_eval (genExpression (), genAttributes ()));
     lazy (Pstr_value (genRecFlag (), genList genValuebinding));
@@ -564,7 +643,7 @@ and genStructureItemDesc () =
     lazy (Pstr_include (genIncludeDecl ()));
     lazy (Pstr_attribute (genAttribute ()));
     lazy (Pstr_extension (genExtension (), genAttributes ()));
-  ]
+  ] []
 
 and genValuebinding () =
   {
